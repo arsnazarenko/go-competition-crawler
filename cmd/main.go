@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	commonUrl  string = "https://enroll.spbstu.ru/applications-manager/api/v1/admission-list/form-rating?applicationEducationLevel=%s&directioneducationformid=%d&directionId=%d"
+	commonUrl string = "https://enroll.spbstu.ru/applications-manager/api/v1/admission-list/form-rating?applicationEducationLevel=%s&directioneducationformid=%d&directionId=%d"
 )
 
 type (
@@ -115,7 +115,6 @@ func GetCompetitionList(ctx context.Context, url string) ([]User, error) {
 	}
 
 	body, err := io.ReadAll(resp.Body)
-	fmt.Println(string(body))
 	if err != nil {
 		return nil, err
 	}
@@ -123,85 +122,92 @@ func GetCompetitionList(ctx context.Context, url string) ([]User, error) {
 	if err = json.Unmarshal(body, &resultResp); err != nil {
 		return nil, err
 	}
+	if len(resultResp.Users) < 1 {
+		return nil, fmt.Errorf("have not users for this directionId\n")
+	}
 	return resultResp.Users, nil
 }
+
 const (
-    firstDirID = 0
-    lastDirID = 303
-    maxWorkers = 8
+	firstDirID = 200 
+	lastDirID  = 1000
+	maxWorkers = 8
+	totalJobs  = lastDirID - firstDirID
 )
 
-
 type Result struct {
-    Users []User
-    Err error
+	Users []User
+	Err   error
 }
 
-
 func Worker(ctx context.Context, wg *sync.WaitGroup, inChan <-chan string, outChan chan<- Result) {
-    defer wg.Done()
-    for url := range inChan {
-        users, err := GetCompetitionList(ctx, url)
-        outChan <- Result{
-        	Users: users,
-        	Err:   err,
-        }
-    } 
+	defer wg.Done()
+	for url := range inChan {
+		users, err := GetCompetitionList(ctx, url)
+		outChan <- Result{
+			Users: users,
+			Err:   err,
+		}
+	}
 }
 
 type Snils string
-type UserDb map[Snils][]*User
-
-func (db UserDb) addUserRow(user *User) {
-    db[Snils(user.UserSnils)] = append(db[Snils(user.UserSnils)], user)
+type UserInfo struct {
+	position uint64
+	u        *User
 }
-func (db UserDb) PrinUserRow(user *User) {
-    row, ok := db[Snils(user.UserSnils)]
-    if !ok {
-        fmt.Printf("User not found\n")
-        return
-    }
-    
-    fmt.Printf("User: %s\n", user.UserSnils)
-    for _, u := range row {
-        fmt.Printf("Специальность: %s, сумма баллов: %d, приоритет: %s, позиция в списке: %d, оригинал: %t\n", u.DirectionEducationForm.TitleForeign)
-    }
+type UserDb map[Snils][]UserInfo
+
+func (db UserDb) addUserRow(userInfo UserInfo) {
+	db[Snils(userInfo.u.UserSnils)] = append(db[Snils(userInfo.u.UserSnils)], userInfo)
+}
+func (db UserDb) PrinUserRow(snils Snils) {
+	row, ok := db[Snils(snils)]
+	if !ok {
+		fmt.Printf("User not found\n")
+		return
+	}
+
+	fmt.Printf("User: %s\n", snils)
+	for _, info := range row {
+		fmt.Printf("Специальность: (%d) %s, сумма баллов: %d, приоритет: %d, позиция в списке: %d, оригинал: %t\n", info.u.DirectionId, info.u.Subjects[0].Title, info.u.FullScore, info.u.Priority, info.position, info.u.HasOriginalDocuments)
+	}
 }
 
 func main() {
-    ctx, cancel := context.WithTimeout(context.Background(), time.Second * 30)
-    reqChan := make(chan string, maxWorkers)
-    resultChan := make(chan Result, maxWorkers)
-    wg := &sync.WaitGroup{}
-    db := make(UserDb, 4096)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	reqChan := make(chan string, totalJobs)
+	resultChan := make(chan Result, totalJobs)
+	wg := &sync.WaitGroup{}
+	db := make(UserDb, 4096)
+	defer cancel()
 
-    
-    for range maxWorkers {
-        go Worker(ctx, wg, reqChan, resultChan)
-    }
+	wg.Add(maxWorkers)
+	for range maxWorkers {
+		go Worker(ctx, wg, reqChan, resultChan)
+	}
+	for dirID := firstDirID; dirID <= lastDirID; dirID++ {
+		reqChan <- fmt.Sprintf(commonUrl, EducationLevelMaster, EducationFormIdFullTime, dirID)
+	}
+	close(reqChan)
 
-    for dirID := firstDirID; dirID <= lastDirID; dirID++ {
-       reqChan <- fmt.Sprintf(commonUrl, EducationLevelMaster, EducationFormIdFullTime, dirID)
-    } 
-    close(reqChan)
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
 
-    wg.Wait()
-    close(resultChan)
-
-    for res := range resultChan {
-        if res.Err != nil {
-            fmt.Fprintf(os.Stderr, "error occured while making request: %v", res.Err)
-        } else {
-            for _, u := range res.Users {
-                db.addUserRow(&u)
-            }    
-        }
-    }
-
-
-
+	for res := range resultChan {
+		if res.Err != nil {
+			fmt.Fprintf(os.Stderr, "error occured while making request: %v\n", res.Err)
+		} else {
+			for position, u := range res.Users {
+				db.addUserRow(UserInfo{
+					position: uint64(position),
+					u:        &u,
+				})
+			}
+		}
+	}
+    db.PrinUserRow("163-124-528 36")
 
 }
-
-
