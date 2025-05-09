@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	worker_pool "go-competiotion-crawler/internal"
 	"io"
 	"net/http"
 	"os"
@@ -173,8 +174,10 @@ func (db UserDb) PrinUserRow(snils Snils) {
 		fmt.Printf("Специальность: (%d) %s, сумма баллов: %d, приоритет: %d, позиция в списке: %d, оригинал: %t\n", info.u.DirectionId, info.u.Subjects[0].Title, info.u.FullScore, info.u.Priority, info.position, info.u.HasOriginalDocuments)
 	}
 }
-
 func main() {
+	worker_pool.Example1()
+}
+func main1() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	reqChan := make(chan string, totalJobs)
 	resultChan := make(chan Result, totalJobs)
