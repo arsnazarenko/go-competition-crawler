@@ -129,7 +129,7 @@ func GetCompetitionList(ctx context.Context, url string) ([]User, error) {
 }
 
 const (
-	firstDirID = 200 
+	firstDirID = 200
 	lastDirID  = 1000
 	maxWorkers = 8
 	totalJobs  = lastDirID - firstDirID
@@ -208,6 +208,6 @@ func main() {
 			}
 		}
 	}
-    db.PrinUserRow("163-124-528 36")
+	db.PrinUserRow("163-124-528 36")
 
 }
