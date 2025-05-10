@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	worker_pool "go-competiotion-crawler/internal"
+	"go-competiotion-crawler/internal/worker_pool"
 	"io"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 )
 
@@ -131,7 +130,7 @@ func GetCompetitionList(ctx context.Context, url string) ([]User, error) {
 
 const (
 	firstDirID = 200
-	lastDirID  = 1000
+	lastDirID  = 300
 	maxWorkers = 8
 	totalJobs  = lastDirID - firstDirID
 )
@@ -139,17 +138,6 @@ const (
 type Result struct {
 	Users []User
 	Err   error
-}
-
-func Worker(ctx context.Context, wg *sync.WaitGroup, inChan <-chan string, outChan chan<- Result) {
-	defer wg.Done()
-	for url := range inChan {
-		users, err := GetCompetitionList(ctx, url)
-		outChan <- Result{
-			Users: users,
-			Err:   err,
-		}
-	}
 }
 
 type Snils string
@@ -175,35 +163,27 @@ func (db UserDb) PrinUserRow(snils Snils) {
 	}
 }
 func main() {
-	worker_pool.Example1()
-}
-func main1() {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	reqChan := make(chan string, totalJobs)
-	resultChan := make(chan Result, totalJobs)
-	wg := &sync.WaitGroup{}
-	db := make(UserDb, 4096)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	pool := worker_pool.NewWorkerPoolWithCapacity[[]User](maxWorkers, totalJobs)
+	handles := make([]worker_pool.Handle[[]User], 0, totalJobs)
+	db := make(UserDb, totalJobs)
 
-	wg.Add(maxWorkers)
-	for range maxWorkers {
-		go Worker(ctx, wg, reqChan, resultChan)
+	for d := firstDirID; d <= lastDirID; d++ {
+		reqUrl := fmt.Sprintf(commonUrl, EducationLevelMaster, EducationFormIdFullTime, d)
+		v, err := pool.Submit(func() ([]User, error) { return GetCompetitionList(ctx, reqUrl) })
+		if err != nil {
+			panic("submit error")
+		}
+		handles = append(handles, v)
 	}
-	for dirID := firstDirID; dirID <= lastDirID; dirID++ {
-		reqChan <- fmt.Sprintf(commonUrl, EducationLevelMaster, EducationFormIdFullTime, dirID)
-	}
-	close(reqChan)
 
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
-
-	for res := range resultChan {
-		if res.Err != nil {
-			fmt.Fprintf(os.Stderr, "error occured while making request: %v\n", res.Err)
+	for _, h := range handles {
+		res, err := h.Get()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error occured while making request: %v\n", err)
 		} else {
-			for position, u := range res.Users {
+			for position, u := range res {
 				db.addUserRow(UserInfo{
 					position: uint64(position),
 					u:        &u,
@@ -211,6 +191,5 @@ func main1() {
 			}
 		}
 	}
-	db.PrinUserRow("163-124-528 36")
 
 }
