@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	commonUrl string = "https://enroll.spbstu.ru/applications-manager/api/v1/admission-list/form-rating?applicationEducationLevel=%s&directioneducationformid=%d&directionId=%d"
+	urlTemplate string = "https://enroll.spbstu.ru/applications-manager/api/v1/admission-list/form-rating?applicationEducationLevel=%s&directioneducationformid=%d&directionId=%d"
 )
 
 type (
@@ -169,9 +169,10 @@ func main() {
 	handles := make([]worker_pool.Handle[[]User], 0, totalJobs)
 	db := make(UserDb, totalJobs)
 
-	for d := firstDirID; d <= lastDirID; d++ {
-		reqUrl := fmt.Sprintf(commonUrl, EducationLevelMaster, EducationFormIdFullTime, d)
-		v, err := pool.Submit(func() ([]User, error) { return GetCompetitionList(ctx, reqUrl) })
+	for directionID := firstDirID; directionID <= lastDirID; directionID++ {
+		v, err := pool.Submit(func() ([]User, error) {
+			return GetCompetitionList(ctx, fmt.Sprintf(urlTemplate, EducationLevelMaster, EducationFormIdFullTime, directionID))
+		})
 		if err != nil {
 			panic("submit error")
 		}
